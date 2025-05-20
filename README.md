@@ -37,7 +37,7 @@ This will take a while. Once done, you should be able to run test_tracking.py fr
 Install conda if you haven't already (normal venv works too)
 
 ```
-conda create -n HapticRehabEnv
+conda create -n HapticRehabEnv python=3.10
 conda activate HapticRehabEnv
 pip install opencv-python numpy
 conda install -c conda-forge libstdcxx-ng
