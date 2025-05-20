@@ -10,10 +10,11 @@ from sys import platform
 import argparse
 from openpose import pyopenpose as op
 import numpy as np
+import time
 
-DISPLAY = False
+DISPLAY = True
 DEBUG = True
-
+WEBCAM_IDX = 2 # 2
 
 def prepare_openpose(params):
     """
@@ -25,12 +26,11 @@ def prepare_openpose(params):
 
     return opWrapper
 
-def process_camera_frame(opWrapper, display=False, webcam=0):
+def process_camera_frame(opWrapper, webcam, display=False):
     """
     Grabs the view from the intended webcam, and runs openpose to estimate keypoints.
     """
-    capture = cv2.VideoCapture(webcam)
-    ret, currentFrame = capture.read()
+    ret, currentFrame = webcam.read()
     #if capture.isOpened():         # Checks the stream
     #    frameSize = (int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)),
     #                        int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)))
@@ -49,7 +49,7 @@ def process_camera_frame(opWrapper, display=False, webcam=0):
 
         labeled_image_BGR = cv2.cvtColor(labeled_image, cv2.COLOR_RGB2BGR)
         cv2.imshow("labeled_image", labeled_image_BGR)
-        cv2.waitKey()
+        cv2.waitKey(1)
     return keypoints
 
 def get_leg_angles(keypoints, leg_selected="LEFT"):
@@ -150,12 +150,17 @@ if __name__ == "__main__":
     params["model_folder"] = "gits/openpose/models/"
     params["face"] = False
     params["hand"] = False
-    params["net_resolution"] = "-1x64"
+    params["net_resolution"] = "-1x256"
 
     opWrapper = prepare_openpose(params)
-
+    webcam = cv2.VideoCapture(WEBCAM_IDX)
+    
+    i = 0
+    i_save = 20*10
+    out = np.zeros((i_save, 3))
+    start_time = time.time()
     while True:
-        keypoints = process_camera_frame(opWrapper, DISPLAY)
+        keypoints = process_camera_frame(opWrapper, webcam, DISPLAY)
         if type(keypoints) == np.ndarray and keypoints.size > 1:
             if DEBUG: print("Person detected.")
             ankle_angle, knee_angle = get_leg_angles(keypoints)
@@ -165,6 +170,18 @@ if __name__ == "__main__":
                 knee_angle = np.rad2deg(knee_angle)
 
             if DEBUG: print("ANGLES:", "ankle", ankle_angle, "knee", knee_angle)
-            
+
+            out[i, 0] = time.time() - start_time
+            out[i, 1] = ankle_angle
+            out[i, 2] = knee_angle
+            i += 1
+        
         else:
             if DEBUG: print("No person detected.")
+
+            
+        if i >= i_save:
+            i = 0
+            print("SAVING DATA...")
+            np.savetxt("output.csv", out, delimiter=",")
+
