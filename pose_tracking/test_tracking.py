@@ -49,7 +49,9 @@ def process_camera_frame(opWrapper, webcam, display=False):
 
         labeled_image_BGR = cv2.cvtColor(labeled_image, cv2.COLOR_RGB2BGR)
         cv2.imshow("labeled_image", labeled_image_BGR)
-        cv2.waitKey(1)
+        #cv2.waitKey(1)
+    if display:
+        return keypoints, labeled_image_BGR
     return keypoints
 
 def get_leg_angles(keypoints, leg_selected="LEFT"):
@@ -140,6 +142,7 @@ def vec_angle(u, v):
 
 
 if __name__ == "__main__":
+
     params = dict()
 
     if not DISPLAY:
@@ -159,17 +162,41 @@ if __name__ == "__main__":
     i_save = 20*10
     out = np.zeros((i_save, 3))
     start_time = time.time()
+
+    ankle_setpoint_high = 80 
+    ankle_setpoint_low = 60
+    state = 0
+    text = "Extend ankle!"
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 1
+    color = (255, 255, 255)  # White color
+    thickness = 2
+    position = (50, 100)  # Coordinates of the bottom-left corner of the text string
+
     while True:
-        keypoints = process_camera_frame(opWrapper, webcam, DISPLAY)
+        keypoints, image = process_camera_frame(opWrapper, webcam, DISPLAY)
         if type(keypoints) == np.ndarray and keypoints.size > 1:
             if DEBUG: print("Person detected.")
             ankle_angle, knee_angle = get_leg_angles(keypoints)
             if ankle_angle != None:
                 ankle_angle = np.rad2deg(ankle_angle)
+
+                if state == 0 and ankle_angle > ankle_setpoint_high:
+                    # now we need to seek the low setpoint
+                    state = 1
+                    text = "Extend ankle!"
+
+                elif state == 1 and ankle_angle < ankle_setpoint_low:
+                    # now we need to seek the high setpoint
+                    state = 0
+                    text = "Flex ankle!"
+
             if knee_angle != None:
                 knee_angle = np.rad2deg(knee_angle)
 
             if DEBUG: print("ANGLES:", "ankle", ankle_angle, "knee", knee_angle)
+
 
             out[i, 0] = time.time() - start_time
             out[i, 1] = ankle_angle
@@ -179,9 +206,13 @@ if __name__ == "__main__":
         else:
             if DEBUG: print("No person detected.")
 
-            
+
         if i >= i_save:
             i = 0
             print("SAVING DATA...")
             np.savetxt("output.csv", out, delimiter=",")
 
+        # Put the text on the image
+        cv2.putText(image, text, position, font, font_scale, color, thickness, cv2.LINE_AA)
+        cv2.imshow("labeled_image", image)
+        cv2.waitKey(1)
