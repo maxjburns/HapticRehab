@@ -5,7 +5,7 @@
 
 // command messages follow this convention:
 //  0 | 254 --> start of a message
-//  1 | 0x?? --> mode of control (0 --> only servo; 1--> only vibration; 2--> both feedback)
+//  1 | 0x?? --> mode of control (0 --> only servo; 1--> only vibration; 2--> both feedback; 3--> kill everything)
 //  2 | 0x?? --> servo command (0 to 180)
 //  3 | 0x?? --> motor index 0 command (0 to MOTOR_MAX) (should not exceed 253)
 //  4 | 0x?? --> motor index 1 command (0 to MOTOR_MAX) (should not exceed 253)
@@ -83,6 +83,7 @@ void sendCommands(uint8_t commandList[])
   // mode 0 --> only servo
   // mode 1 --> only vibration
   // mode 2 --> both feedback methods.
+  // mode 3 --> kill everything
   // More modes can be supported in the future.
 
   uint8_t mode = commandList[0];
@@ -94,7 +95,7 @@ void sendCommands(uint8_t commandList[])
   }
   
   // VIBRATION
-  else if(mode==1 || mode==2)
+  if(mode==1 || mode==2)
   {
     uint8_t eccCommand;
 
@@ -104,7 +105,15 @@ void sendCommands(uint8_t commandList[])
       driveMotor(i, eccCommand);
     }
   }
-  else
+  if(mode==3)
+  {
+    for (uint8_t i = 0; i < totalECCPins; i++) 
+    {
+      feedbackServo.write(90);
+      stopMotor(i);
+    }
+  }
+  if(mode>3)
   {
     Serial.println("ERROR: INVALID MODE");
   }
