@@ -12,12 +12,21 @@ from openpose import pyopenpose as op
 import numpy as np
 import time
 
+from scipy.signal import butter, lfilter
 
 class OpenPoseWrapper:
-    def __init__(self, op_params, webcam_idx):
+    def __init__(self, op_params, webcam_idx, buffer_size, lowpass_cutoff:float=3.0, sample_freq:float=10.0):
         self.opWrapper = self.prepare_openpose(op_params)
-        self.webcam = webcam = cv2.VideoCapture(webcam_idx)
+        self.webcam = cv2.VideoCapture(webcam_idx)
 
+        self.buffer_size = buffer_size
+        self.ankle_angle_arr = np.zeros((self.buffer_size))
+        self.ankle_arr_idx = 0
+
+        self.b, self.a = butter_lowpass(lowpass_cutoff, sample_freq, 2)
+
+        self.ankle_ready = False
+        self.fresh_frame = None
         
     def prepare_openpose(self, params):
         """
@@ -28,6 +37,43 @@ class OpenPoseWrapper:
         opWrapper.start()
 
         return opWrapper
+    
+    def collect_ankle_angle(self, leg_selected:str, display=False):
+        """
+        records ankle angle to a buffer for later filtering.
+        """
+        if display:
+            keypoints, self.fresh_frame = self.process_camera_frame(display)
+            
+        else:
+            keypoints = self.process_camera_frame(display)
+        
+        if type(keypoints) == np.ndarray and keypoints.size > 1:
+
+            ankle_angle, _ = self.get_leg_angles(keypoints, leg_selected)
+        else:
+            #print("no keypoints")
+            ankle_angle = None
+        
+        if ankle_angle == None:
+            #print("failed to find ankle angle")
+            return
+
+        self.ankle_angle_arr[self.ankle_arr_idx] = ankle_angle
+
+        self.ankle_arr_idx += 1
+
+        if self.ankle_arr_idx >= self.buffer_size:
+            self.ankle_arr_idx = 0
+            self.ankle_ready = True
+
+    def get_ankle_angle(self):
+        """
+        used to get filtered ankle angle
+        """
+        shifted_ankle_angle_arr = np.roll(self.ankle_angle_arr, -self.ankle_arr_idx-1)
+        filtered_sample = lfilter(self.b, self.a, shifted_ankle_angle_arr)
+        return filtered_sample[-1]
 
     def process_camera_frame(self, display=False):
         """
@@ -47,16 +93,16 @@ class OpenPoseWrapper:
             labeled_image = datum.cvOutputData
 
             labeled_image_BGR = cv2.cvtColor(labeled_image, cv2.COLOR_RGB2BGR)
-            cv2.imshow("labeled_image", labeled_image_BGR)
+            #cv2.imshow("labeled_image", labeled_image_BGR)
             
         if display:
             return keypoints, labeled_image_BGR
         
         return keypoints
 
-    def get_leg_angles(self, keypoints, leg_selected="LEFT"):
+    def get_leg_angles(self, keypoints, leg_selected:str):
         """
-        Given a set of keypoints and a desired leg, gets the estimated joint angles.
+        Given a set of keypoints and a desired leg, gets the estimated joint angles in degrees.
         """
 
         # Focus on desired leg
@@ -121,16 +167,17 @@ class OpenPoseWrapper:
 
         # if anything was not in frame and couldn't be estimated, do not return the angle.
         if get_ankle_angle:
-            ankle_ang = vec_angle(shank_vec, foot_vec)
+            ankle_ang = np.rad2deg(vec_angle(shank_vec, foot_vec))
         else:
             ankle_ang = None
 
         if get_knee_angle:
-            knee_ang = vec_angle(thigh_vec, shank_vec)
+            knee_ang = np.rad2deg(vec_angle(thigh_vec, shank_vec))
         else:
             knee_ang = None
 
         return ankle_ang, knee_ang
+    
 
 def vec_angle(u, v):
     """
@@ -139,3 +186,9 @@ def vec_angle(u, v):
     cos_theta = np.dot(u, v) / (np.linalg.norm(u) * np.linalg.norm(v))
     cos_theta = np.clip(cos_theta, -1.0, 1.0) 
     return np.arccos(cos_theta)
+
+def butter_lowpass(cutoff, fs, order=2):
+    nyq = 0.5 * fs  # Nyquist frequency
+    normal_cutoff = cutoff / nyq
+    return butter(order, normal_cutoff, btype='low', analog=False)
+
