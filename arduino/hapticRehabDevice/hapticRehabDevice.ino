@@ -16,8 +16,14 @@
 
 
 // DONT FORGET TO SET THESE UP. Order is important, and will be outlined formally once we have pinouts
-const uint8_t SERVO_PIN = 0;
-const uint8_t ECC_PINS[] = {6, 2, 9, 4, 8, 3};
+// pinout order: top to bottom, first do front of shank then back of shank
+// so... front top, front mid up, front mid down, front bottom, back top, back mid up, back mid down, bottom
+const uint8_t SERVO_PIN = 12;
+const uint8_t ECC_PINS[] = {3, 5, 6, 11, 4, 2, 7, 8};
+const uint8_t FAKE_PWM_PINS[] = {4, 2, 7, 8};
+const uint8_t FAKE_PWM_MOTOR_IDX[] = {4, 5, 6, 7};
+
+const unsigned int FAKE_PWM_PERIOD = 10000; // in microseconds
 
 const uint8_t START_BYTE = 254;
 const uint8_t END_BYTE = 255;
@@ -27,7 +33,15 @@ const uint8_t END_BYTE = 255;
 const uint8_t motorMax = 253;
 
 const uint8_t totalECCPins = sizeof(ECC_PINS) / sizeof(ECC_PINS[0]);
+const uint8_t totalFakePwmPins = sizeof(FAKE_PWM_PINS) / sizeof(FAKE_PWM_PINS[0]);
 const uint8_t maxCommandSize = 1 + 1 + totalECCPins;
+
+unsigned int currentTime;
+
+unsigned int fakePwmPrevTimes[totalFakePwmPins];
+unsigned int fakePwmOnPeriod[totalFakePwmPins];
+
+unsigned int timeElapsed;
 
 uint8_t commandList[maxCommandSize];
 Servo feedbackServo;
@@ -46,6 +60,10 @@ void setup() {
 
   // serial setup
   Serial.begin(9600);
+
+  currentTime = micros();
+  memset(commandList, 0, maxCommandSize);
+  commandList[1] = 90; // for servo
 }
 
 void loop() {
@@ -60,6 +78,7 @@ void loop() {
     if(newByte==START_BYTE)
     {
       memset(commandList, 0, maxCommandSize);
+      commandList[1] = 90; // for servo
       commandIndex = 0;
     }
     // command complete, time to send command list
@@ -75,6 +94,27 @@ void loop() {
     }
   }
  
+
+  for(uint8_t i = 0; i < totalFakePwmPins; i++)
+  {
+    
+    currentTime = micros();
+    timeElapsed = currentTime - fakePwmPrevTimes[i];
+
+    if(timeElapsed > FAKE_PWM_PERIOD)
+    {
+      fakePwmPrevTimes[i] = micros();
+    }
+    else if(timeElapsed < fakePwmOnPeriod[i])
+    {
+      digitalWrite(FAKE_PWM_PINS[i], HIGH);
+    }
+    else
+    {
+      digitalWrite(FAKE_PWM_PINS[i], LOW);
+    }
+  }
+  
 }
 
 void sendCommands(uint8_t commandList[])
@@ -93,12 +133,10 @@ void sendCommands(uint8_t commandList[])
   {
     feedbackServo.write(commandList[1]);
   }
-  
   // VIBRATION
   if(mode==1 || mode==2)
   {
     uint8_t eccCommand;
-
     for (uint8_t i = 0; i < totalECCPins; i++) 
     {
       eccCommand = commandList[i+2];
@@ -124,11 +162,21 @@ void sendCommands(uint8_t commandList[])
 void driveMotor(uint8_t motorIndex, uint8_t dutyCycle)
 {
   // used to drive the eccentric mass motors. motor index reference can be found at beginning of code.
-
   if(motorIndex >= totalECCPins)
   {
     Serial.println("ERROR: INCORRECT MOTOR INDEX!");
   }
+
+  // if this motor is using fake pwm, then we need to set that duty cycle so the parallel loop can execute it.
+  for(uint8_t i=0; i < totalFakePwmPins; i++)
+  {
+    if(FAKE_PWM_MOTOR_IDX[i] == motorIndex)
+    {
+      fakePwmOnPeriod[i] = (unsigned int)(FAKE_PWM_PERIOD * ((float)dutyCycle / 255.0));
+      return;
+    }
+  }
+
   // used to drive motor based on index
   uint8_t pin = ECC_PINS[motorIndex];
   uint8_t actualDutyCycle;
