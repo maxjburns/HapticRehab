@@ -59,11 +59,13 @@ class HapticCommander:
         Used to send the next command in the queue, should be called at the desired control frequency.
         """
         if self.debug: print("command queue size:", len(self.command_queue))
-
+        if len(self.command_queue) == 0:
+            return False
         current_command = self.command_queue.pop(0)
 
         self.send_command(current_command[0], current_command[1], current_command[2:])
-
+        return True
+    
     def send_command(self, mode:str, servo_cmd:int=90, vibe_cmd:list[int]=[0]):
         """
         used to send command to the arduino
