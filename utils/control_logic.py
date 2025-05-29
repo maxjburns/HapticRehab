@@ -46,6 +46,12 @@ class HapticCommander:
             raise ValueError("Serial port " + str(port) + " could not be opened!")
         print("serial connection sucessful!")
 
+    def commands_in_queue(self):
+        """
+        helper to get number of commands current in the queue.
+        """
+        return len(self.command_queue)
+    
     def add_commands_to_queue(self, modes:list[str]=["both"], servo_cmds:list[int]=[90], vibe_cmds:list[list[int]]=[[0]]):
         for i in range(len(modes)):
             mode = modes[i]
@@ -102,8 +108,46 @@ class HapticCommander:
 
         if self.debug: print("sending command:", mode, servo_cmd, vibe_cmd, "\n\tas byte arr:", command)
         self.ser.write(command)
+    
+    def binary_deadzone(self, current_angle:float, goal_angle:float, deadzone_size:float, servo_delta:float=0, intensities:list[float]=[0], mode:str="both"):
+        """
+        Function used to generate a command where stimulation is constant based on sign of error, with a deadzone near the goal.
+
+        current_angle is the current joint angle.
+        goal_angle is the target for the current time instant.
+        servo_delta is the difference from 90 that the servo should assume based on error sign.
+        intensities are used to both indicate the strength of vibration, and whether a motor activates with positive or negative
+                        error. Negative values of intensity will activate motors when angle is negative.
+        deadzone_size is the maximum level of error for which feedback is applied.
+        mode is "vibe" "servo" or "both" depending on the type of stimulation desired.
         
-    def attracting_point(self, current_angle:float, goal_angle:float, increasing:bool=True, mode:str="servo", gains:list[float]=[1.5],
+        returns mode, servo_command, vibe_commands which should be then added to the command queue.
+
+        current_angle is also stored to calculate the rate of progress, if desired. 
+        this function expects that input data is filtered!
+        """
+
+        if mode not in ["servo", "vibe", "both"]:
+            raise NotImplementedError("Unacceptable mode.")
+
+        # get current error
+        err = goal_angle - current_angle
+
+        err_mag = np.abs(err)
+        err_sign = int(err/err_mag)
+
+        if err_mag < deadzone_size:
+            return [mode], [90], [0]*self.total_vibe_motors
+        
+        vibe_out = [0]*len(intensities)
+        for i, intensity in enumerate(intensities):
+            vibe_out[i] = err_sign*intensity
+
+        return [mode], [err_sign*servo_delta], [vibe_out]
+
+
+
+    def attracting_point(self, current_angle:float, goal_angle:float, increasing:bool=True, mode:str="both", gains:list[float]=[1.5],
                          peak_vibe:int=200):
         """
         Function used to generate a command where stimulation is proportional to error.
@@ -263,6 +307,34 @@ class HapticCommander:
         total_timesteps = int(hold_time*self.control_freq)
 
         return [mode]*total_timesteps, [servo_cmd]*total_timesteps, [vibe_command for t in range(total_timesteps)]
+    
+    def servo_kick(self, start_angle, goal_angle, advance_time, retraction_time):
+        """
+        used to generate a series of commands used to bring the servo between two angles at different rates. A fast advance
+        and slow retraction may communicate directional information.
+
+        start_angle is the initial angle
+        goal_angle is the angle the servo will advance to
+        advance_time is the time it takes the servo to reach the goal
+        retraction_time is the time it takes the servo to return to initial position.
+        """
+        total_timesteps = 0
+
+        # find how many forward steps we get, then interp the angle linearly over that range
+        steps = advance_time * self.control_freq * 0.001
+        total_timesteps += steps
+
+        advance_commands = np.linspace(start_angle, goal_angle, steps)
+
+        # find out how many retraction steps we get, then interp the angle linearly over that range.
+        steps = retraction_time * self.control_freq * 0.001
+        total_timesteps += steps
+
+        retract_commands = np.linspace(goal_angle, start_angle, steps)
+
+        servo_commands = list(advance_commands) + list(retract_commands)
+
+        return ["servo"]*total_timesteps, servo_commands, [[0]*self.total_vibe_motors for t in range(total_timesteps)]
 
 def merge_commands(command_lists:list[tuple]):
     """
