@@ -12,14 +12,17 @@ SERVO_MAX = 180
 DEBUG = True
 
 class HapticCommander:
-    def __init__(self, serial_port, baud):
+    def __init__(self, serial_port, baud, control_freq=30, total_vibe_motors=8):
         
-        self.init_serial(serial_port, baud)
+        #self.init_serial(serial_port, baud)
 
         self.prev_angle = None
         self.prev_time = None
 
         self.command_queue = []
+
+        self.control_freq = control_freq
+        self.total_vibe_motors = total_vibe_motors
 
         self.debug = DEBUG
 
@@ -160,8 +163,166 @@ class HapticCommander:
 
         return [mode], [int(servo_command)], [vibe_command]
         
+    def saltation_effect(self, motor_indices:list[int], activation_intensity, activation_time, delay):
+        """
+        Used to generate a series of commands to create the desired saltation illusion on the device.
+        Inputs:
+        motor_indices (list[str]): an ordered list of the motor indices which will be used in the saltation effect:
+                                    0 --> front of shank, proximal to knee
+                                    ...
+                                    3 --> front of shank, distal to knee
+                                    4 --> back of shank, distal to knee
+                                    ...
+                                    7 --> back of shank, proximal to knee
 
+        activation_times (either list[float] or float): time in ms to buzz. 
+        delays (either list[float] or float): delays in ms between sequential motor activations. 
 
+        Outputs:
+        list of modes, list of servo commands, list of vibration motor commands.
+        """
+        # put together the activation intensity.
+        if type(activation_intensity) == float or type(activation_intensity) == int:
+            intensity_ls = [activation_intensity]*len(motor_indices)
+        else:
+            intensity_ls = activation_intensity
+        
+        if len(intensity_ls) != len(motor_indices):
+            raise ValueError("Vibration intensity should either be a single value, or a list of len equal to number of motor indices.")
+        
+        # put together the activation timing.
+        if type(activation_time) == float or type(activation_time) == int:
+            activation_ls = [activation_time]*len(motor_indices)
+        else:
+            activation_ls = activation_time
+        
+        if len(activation_ls) != len(motor_indices):
+            raise ValueError("Motor activation times should either be a single value, or a list of len equal to number of motor indices.")
+        
+        # put together the delays between activations
+        if type(delay) == float or type(delay) == int:
+            delay_ls = [delay]*(len(motor_indices)-1)
+        else:
+            delay_ls = delay
+        
+        if len(delay_ls) != len(motor_indices) - 1:
+            raise ValueError("Delays only appear between motor activations, should be one shorter than number of motors.")
+        
+        vibe_ls = []
+        total_timesteps = 0
+        for i, activation_time in enumerate(activation_ls):
+            # first add the proper intensity for the motor activating at this section.
+            motor_idx = motor_indices[i]
+            intensity = intensity_ls[i]
+            steps = int(activation_time * self.control_freq*0.001)
+            
+            # each timestep should last 1/control_freq
+            for t in range(steps):
+                new_vibe_command = [0]*self.total_vibe_motors
+                new_vibe_command[motor_idx] = intensity
+
+                vibe_ls.append(new_vibe_command)
+
+            total_timesteps += steps
+
+            if i >= len(delay_ls):
+                continue
+            # now we add empty lists for the delays.
+            post_delay = delay_ls[i]
+            steps = int(post_delay * self.control_freq*0.001)
+
+            for t in range(steps):
+                new_vibe_command = [0]*self.total_vibe_motors
+
+                vibe_ls.append(new_vibe_command)
+
+            total_timesteps += steps
+        
+        mode_ls = ["vibe"]*total_timesteps
+        servo_ls = [90]*total_timesteps
+
+        return mode_ls, servo_ls, vibe_ls
+    
+
+    def hold_state(self, servo_cmd:int, vibe_command:list[int], hold_time:float):
+        """
+        Simple helper used to generate a set of identical commands, where servo and vibe motors remain at the given values for the given time.
+        This can be used to create on/off patterns if 1/freq is supplied for hold_time.
+        """
+        mode = ""
+        for vibe in vibe_command:
+            if vibe:
+                mode = "vibe"
+
+        if servo_cmd != 90:
+            if mode == "vibe":
+                mode = "both"
+            else:
+                mode == "servo"
+
+        total_timesteps = int(hold_time*self.control_freq)
+
+        return [mode]*total_timesteps, [servo_cmd]*total_timesteps, [vibe_command for t in range(total_timesteps)]
+
+def merge_commands(command_lists:list[tuple]):
+    """
+    Function used to layer any number of commands. Layering is an additive process. Input is a list containing tuples of commands:
+    command_lists = [(modes1[], servos1[], vibes1[]), 
+                     (modes2[], servos2[], vibes2[]), 
+                     (modes3[], servos3[], vibes3[])]
+    
+    for now, it is expected that these commands are fully independent. So, if one command list has motor 4 vibrating at timestep 2, no
+    other command list should command motor 4 at timestep 2. In the future we should add some sort of averaging.
+
+    output is a single tuple of commands:
+    modes[], servos[], vibes[]
+    """
+
+    num_timesteps = len(command_lists[0][0])
+    num_vibes = len(command_lists[0][2][0])
+    out_commands = ([""]*num_timesteps, [0]*num_timesteps, [[0]*num_vibes for t in range(num_timesteps)])
+
+    # iter through the commands
+    for i in range(len(command_lists)):
+
+        # check lengths of mode list, then servos, then vibes
+        for p in range(3):
+            if len(command_lists[i][p]) != num_timesteps:
+                raise ValueError("Command lists must have all elements of the same length.")
+            
+        for t in range(num_timesteps):
+            new_mode = command_lists[i][0][t]
+            new_servo = command_lists[i][1][t]
+            new_vibe = command_lists[i][2][t]
+            
+            current_mode = out_commands[0][t]
+            current_servo = out_commands[1][t]
+            current_vibe = out_commands[2][t]
+
+            # mode is already assigned, we may need to change it to "both"
+            if current_mode:
+                # assign it as both, only if there is a mode mismatch and we haven't already selected both.
+                if current_mode != new_mode and current_mode != "both":
+                    out_commands[0][t] = "both"
+
+            # mode is not yet assigned, so assign it.
+            else:
+                out_commands[0][t] = command_lists[i][0][t]
+
+            # have not assigned servo for this timestep
+            if not current_servo or current_servo == 90:
+                out_commands[1][t] = new_servo
+            # we have assigned servo already, but there is another command to be added.
+            elif new_servo and new_servo != 90:
+                raise ValueError("In current implementation, command lists must be independent.")
+            
+            for j in range(num_vibes):
+                if not current_vibe[j]:
+                    out_commands[2][t][j] = new_vibe[j]
+                elif new_vibe[j]:
+                    raise ValueError("In current implementation, command lists must be independent.") 
+
+    return out_commands
 
 def list_ports():
     """

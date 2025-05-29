@@ -1,10 +1,11 @@
 
-from utils.pose_tracking import OpenPoseWrapper
-from utils.control_logic import HapticCommander, list_ports
+#from utils.pose_tracking import OpenPoseWrapper
+from utils.control_logic import HapticCommander, list_ports, merge_commands
 import time
 import cv2
 
 import numpy as np
+
 
 LEG_SELECTED = "LEFT"
 DISPLAY = True
@@ -12,7 +13,7 @@ PORT = "/dev/ttyUSB0"
 BAUD = 9600
 WEBCAM_IDX = 0
 
-CONTROL_FREQ = 20.0
+CONTROL_FREQ = 50.0
 CONTROL_DT = 1.0/CONTROL_FREQ
 
 SAMPLE_FREQ = 10.0
@@ -40,6 +41,18 @@ def main():
     # construct the objects which contain the methods we use for control and ankle angle reading
     print("building haptic commander...")
     commander = HapticCommander(PORT, BAUD)
+
+
+    #modes1, servo1, vibe1 = commander.saltation_effect([0, 1, 2, 3], 120, 100, 50, CONTROL_FREQ, 8)
+    #modes2, servo2, vibe2 = commander.saltation_effect([4, 5, 6, 7], 120, 100, 50, CONTROL_FREQ, 8)
+
+    #modes, servo, vibe = merge_commands([commander.saltation_effect([0, 1, 2, 3], [120, 100, 80, 120], [100, 150, 100, 90], [20, 40, 50], CONTROL_FREQ, 8),
+    #                                     commander.saltation_effect([4, 5, 6, 7], 120, 100, 50, CONTROL_FREQ, 8)])
+    
+    #print(modes)
+    #print(servo)
+    #print(vibe)
+    #print(""+2)
     print("building openpose")
     open_pose = OpenPoseWrapper(params, WEBCAM_IDX, ANKLE_BUFFER_SIZE)
 
