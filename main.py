@@ -1,5 +1,5 @@
 
-#from utils.pose_tracking import OpenPoseWrapper
+from utils.pose_tracking import OpenPoseWrapper
 from utils.control_logic import HapticCommander, list_ports, merge_commands
 import time
 import cv2
@@ -69,7 +69,7 @@ def main():
     goal_angle = 90
 
     # gains are multiplied by the angle error in the current implementation. see above for numeric info
-    vibe_gains = [5.0, 5.0, 5.0, 5.0]
+    vibe_gains = [5.0, 5.0, 5.0, 5.0, -5.0, -5.0, -5.0, -5.0]
                   #-4.0, -4.0, -4.0, -4.0]
     servo_gain = 2.0
 

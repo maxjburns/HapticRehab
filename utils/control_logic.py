@@ -14,7 +14,7 @@ DEBUG = True
 class HapticCommander:
     def __init__(self, serial_port, baud, control_freq=30, total_vibe_motors=8):
         
-        #self.init_serial(serial_port, baud)
+        self.init_serial(serial_port, baud)
 
         self.prev_angle = None
         self.prev_time = None
