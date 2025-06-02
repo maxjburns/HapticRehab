@@ -40,3 +40,4 @@ class DataLogger:
         header_str = ",".join(self.headers)
         np.savetxt(save_path, self.data_arr, delimiter=",", header=header_str, comments='', fmt="%.6f")
     
+    # TODO: add data visualization methods
