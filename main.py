@@ -1,5 +1,5 @@
 
-from utils.pose_tracking import OpenPoseWrapper
+from utils.pose_tracking import OpenPoseWrapper, MaskTracker
 from utils.control_logic import HapticCommander, list_ports, merge_commands
 import time
 import cv2
@@ -9,8 +9,7 @@ import numpy as np
 
 LEG_SELECTED = "LEFT"
 DISPLAY = True
-#PORT=""
-PORT = "/dev/ttyUSB0"
+PORT = "/dev/ttyUSB0" # /dev/ttyUSB0
 BAUD = 9600
 WEBCAM_IDX = 2
 
@@ -20,25 +19,34 @@ CONTROL_DT = 1.0/CONTROL_FREQ
 SAMPLE_FREQ = 10.0
 SAMPLE_DT = 1.0/SAMPLE_FREQ
 
-MODEL_FOLDER = "gits/openpose/models/"
-NET_RESOLUTION = "-1x256"
+TRACKING_METHOD = "CV" # "OPENPOSE"
+# open pose params
+if TRACKING_METHOD == "OPENPOSE":
+    MODEL_FOLDER = "gits/openpose/models/"
+    NET_RESOLUTION = "-1x256"
+
+# cv tracking
+if TRACKING_METHOD == "CV":
+    CALIB_PATH = "data/subl_calib_3.pkl"
+
 ANKLE_BUFFER_SIZE = 20
 
 def main():
     params = dict()
 
+    if TRACKING_METHOD == "OPENPOSE":
     # open pose setup. It runs faster if we don't display bc no rendering needed.
-    if not DISPLAY:
-        params["disable_blending"] = True
-        params["render_pose"] = 0
-        params["display"] = 0
+        if not DISPLAY:
+            params["disable_blending"] = True
+            params["render_pose"] = 0
+            params["display"] = 0
 
-    # set params globally above, not here
-    params["model_folder"] = MODEL_FOLDER
-    params["face"] = False
-    params["hand"] = False
-    params["net_resolution"] = NET_RESOLUTION
-    
+        # set params globally above, not here
+        params["model_folder"] = MODEL_FOLDER
+        params["face"] = False
+        params["hand"] = False
+        params["net_resolution"] = NET_RESOLUTION
+        
     # construct the objects which contain the methods we use for control and ankle angle reading
     print("building haptic commander...")
     commander = HapticCommander(PORT, BAUD)
@@ -54,8 +62,13 @@ def main():
     #print(servo)
     #print(vibe)
     #print(""+2)
-    print("building openpose")
-    open_pose = OpenPoseWrapper(params, WEBCAM_IDX, ANKLE_BUFFER_SIZE)
+    if TRACKING_METHOD == "OPENPOSE":
+        print("building openpose")
+        tracking_wrapper = OpenPoseWrapper(params, WEBCAM_IDX, ANKLE_BUFFER_SIZE, sample_freq=SAMPLE_FREQ)
+    
+    if TRACKING_METHOD == "CV":
+        print("building openpose")
+        tracking_wrapper = MaskTracker(CALIB_PATH, WEBCAM_IDX, ANKLE_BUFFER_SIZE, sample_freq=SAMPLE_FREQ)
 
     # used to track the control and sampling loops.
     prev_sample_time = time.time()
@@ -104,12 +117,16 @@ def main():
             
             # this collects ankle angle to the internal array stored within the open pose wrapper
             # we do this so that the data can be lowpass filtered when "get" is used.
-            open_pose.collect_ankle_angle(LEG_SELECTED, DISPLAY)
+            if TRACKING_METHOD == "OPENPOSE":
+                tracking_wrapper.collect_ankle_angle(LEG_SELECTED, DISPLAY)
+
+            if TRACKING_METHOD == "CV":
+                tracking_wrapper.collect_ankle_angle(DISPLAY)
 
             # we want to render every processed frame for debugging.
             if DISPLAY:
                 # openpose wrapper stores the most recent frame each time collect_ankle_angle is called.
-                image = open_pose.fresh_frame.copy()
+                image = tracking_wrapper.fresh_frame.copy()
 
                 (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
 
@@ -128,9 +145,9 @@ def main():
         
         # used for the control loop, how often do we send information?
         # need to wait for ankle data to be ready (ankle buffer is full of data and ready to be filtered)
-        if current_time - prev_control_time > CONTROL_DT: #and open_pose.ankle_ready:
+        if current_time - prev_control_time > CONTROL_DT and tracking_wrapper.ankle_ready:
             # get the current ankle angle, this is the step which applies a lowpass filter to buffered data.
-            current_angle = open_pose.get_ankle_angle()
+            current_angle = tracking_wrapper.get_ankle_angle()
             
             # show current angle for debugging, and update image text. In collect loop we write this.
             print("current angle:", current_angle)
@@ -140,51 +157,9 @@ def main():
             # this is where commmands can be added to the queue. currently we apply feedback every control loop, but
             # in the future we can add many commands to the queue, and execute one every time this statement is entered.
             # then, add new commands once the queue is empty.
-            #mode, servo_cmd, vibe_cmds = commander.attracting_point(current_angle, goal_angle, mode="both", gains=gains)
-            if commander.commands_in_queue() == 0:
-                intensities = [120, 120, 120, 120, 250, 250, 250, 250]
-                mode, servo_cmd, vibe_cmd = commander.binary_deadzone(current_angle, goal_angle, 5.0, servo_delta=10, mode="both", intensities=intensities)
-                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmd)
+            mode, servo_cmd, vibe_cmds = commander.attracting_point(current_angle, goal_angle, mode="both", gains=gains)
+            #commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
 
-            if commander.commands_in_queue() == 0:
-                mode, servo_cmd, vibe_cmd = commander.attracting_point(current_angle, goal_angle, mode="both", gains=gains)
-                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmd)
-
-            if commander.commands_in_queue() == 0:
-                mode, servo_cmd, vibe_cmd = commander.saltation_effect([4, 5, 6, 7], 250, 100, 20)
-                #mode, servo_cmd, vibe_cmd = commander.saltation_effect([0, 1, 2, 3], 120, 100, 20)
-                #mode, servo_cmd, vibe_cmd = merge_commands([commander.saltation_effect([4, 5, 6, 7], 250, 100, 20), 
-                #                                            commander.saltation_effect([0, 1, 2, 3], 120, 100, 20)])
-               # 
-                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmd)
-                mode, servo_cmd, vibe_cmd = commander.hold_state(90, [0]*8, 500)
-                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmd)
-
-            if commander.commands_in_queue() == 0:
-                vibe_ls = [120, 120, 120, 120, 250, 250, 250, 250]
-                mode, servo_cmd, vibe_cmd = commander.vibe_check(100, vibe_ls)
-                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmd)
-
-            if commander.commands_in_queue() == 0:
-                mode, servo_cmd, vibe_cmd = commander.servo_kick(90, 90, 600, 40)
-                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmd)
-            
-            if new_flag and commander.commands_in_queue() == 0:
-                vibe_test = [120, 120, 120, 120, 250, 250, 250, 250]
-                vibe_test = [0, 0, 0, 0, 0, 0, 0, 0]
-                mode, servo_cmd, vibe_cmd = commander.hold_state(90, vibe_test, 100)
-            
-                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmd)
-                new_flag = False
-
-            
-            if not new_flag and commander.commands_in_queue() == 0:
-
-                mode, servo_cmd, vibe_cmd = commander.hold_state(60, [0]*8, 100)
-            
-                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmd)
-                new_flag = True
-            
             # this should always be present.
             commander.send_next_command()
             
