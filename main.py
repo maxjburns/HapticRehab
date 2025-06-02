@@ -1,5 +1,5 @@
 
-from utils.pose_tracking import OpenPoseWrapper
+from utils.pose_tracking import OpenPoseWrapper, MaskTracker
 from utils.control_logic import HapticCommander, list_ports, merge_commands
 import time
 import cv2
@@ -9,7 +9,7 @@ import numpy as np
 
 LEG_SELECTED = "LEFT"
 DISPLAY = True
-PORT = "/dev/ttyUSB0"
+PORT = "/dev/ttyUSB0" # /dev/ttyUSB0
 BAUD = 9600
 WEBCAM_IDX = 0
 
@@ -19,25 +19,34 @@ CONTROL_DT = 1.0/CONTROL_FREQ
 SAMPLE_FREQ = 10.0
 SAMPLE_DT = 1.0/SAMPLE_FREQ
 
-MODEL_FOLDER = "gits/openpose/models/"
-NET_RESOLUTION = "-1x256"
+TRACKING_METHOD = "CV" # "OPENPOSE"
+# open pose params
+if TRACKING_METHOD == "OPENPOSE":
+    MODEL_FOLDER = "gits/openpose/models/"
+    NET_RESOLUTION = "-1x256"
+
+# cv tracking
+if TRACKING_METHOD == "CV":
+    CALIB_PATH = "data/subl_calib_3.pkl"
+
 ANKLE_BUFFER_SIZE = 20
 
 def main():
     params = dict()
 
+    if TRACKING_METHOD == "OPENPOSE":
     # open pose setup. It runs faster if we don't display bc no rendering needed.
-    if not DISPLAY:
-        params["disable_blending"] = True
-        params["render_pose"] = 0
-        params["display"] = 0
+        if not DISPLAY:
+            params["disable_blending"] = True
+            params["render_pose"] = 0
+            params["display"] = 0
 
-    # set params globally above, not here
-    params["model_folder"] = MODEL_FOLDER
-    params["face"] = False
-    params["hand"] = False
-    params["net_resolution"] = NET_RESOLUTION
-    
+        # set params globally above, not here
+        params["model_folder"] = MODEL_FOLDER
+        params["face"] = False
+        params["hand"] = False
+        params["net_resolution"] = NET_RESOLUTION
+        
     # construct the objects which contain the methods we use for control and ankle angle reading
     print("building haptic commander...")
     commander = HapticCommander(PORT, BAUD)
@@ -53,8 +62,13 @@ def main():
     #print(servo)
     #print(vibe)
     #print(""+2)
-    print("building openpose")
-    open_pose = OpenPoseWrapper(params, WEBCAM_IDX, ANKLE_BUFFER_SIZE)
+    if TRACKING_METHOD == "OPENPOSE":
+        print("building openpose")
+        tracking_wrapper = OpenPoseWrapper(params, WEBCAM_IDX, ANKLE_BUFFER_SIZE, sample_freq=SAMPLE_FREQ)
+    
+    if TRACKING_METHOD == "CV":
+        print("building openpose")
+        tracking_wrapper = MaskTracker(CALIB_PATH, WEBCAM_IDX, ANKLE_BUFFER_SIZE, sample_freq=SAMPLE_FREQ)
 
     # used to track the control and sampling loops.
     prev_sample_time = time.time()
@@ -99,12 +113,16 @@ def main():
             
             # this collects ankle angle to the internal array stored within the open pose wrapper
             # we do this so that the data can be lowpass filtered when "get" is used.
-            open_pose.collect_ankle_angle(LEG_SELECTED, DISPLAY)
+            if TRACKING_METHOD == "OPENPOSE":
+                tracking_wrapper.collect_ankle_angle(LEG_SELECTED, DISPLAY)
+
+            if TRACKING_METHOD == "CV":
+                tracking_wrapper.collect_ankle_angle(DISPLAY)
 
             # we want to render every processed frame for debugging.
             if DISPLAY:
                 # openpose wrapper stores the most recent frame each time collect_ankle_angle is called.
-                image = open_pose.fresh_frame.copy()
+                image = tracking_wrapper.fresh_frame.copy()
 
                 (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
 
@@ -123,9 +141,9 @@ def main():
         
         # used for the control loop, how often do we send information?
         # need to wait for ankle data to be ready (ankle buffer is full of data and ready to be filtered)
-        if current_time - prev_control_time > CONTROL_DT and open_pose.ankle_ready:
+        if current_time - prev_control_time > CONTROL_DT and tracking_wrapper.ankle_ready:
             # get the current ankle angle, this is the step which applies a lowpass filter to buffered data.
-            current_angle = open_pose.get_ankle_angle()
+            current_angle = tracking_wrapper.get_ankle_angle()
             
             # show current angle for debugging, and update image text. In collect loop we write this.
             print("current angle:", current_angle)
@@ -136,7 +154,7 @@ def main():
             # in the future we can add many commands to the queue, and execute one every time this statement is entered.
             # then, add new commands once the queue is empty.
             mode, servo_cmd, vibe_cmds = commander.attracting_point(current_angle, goal_angle, mode="both", gains=gains)
-            commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+            #commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
 
             # this should always be present.
             commander.send_next_command()
