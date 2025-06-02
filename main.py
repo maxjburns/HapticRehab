@@ -16,7 +16,7 @@ WEBCAM_IDX = 2
 CONTROL_FREQ = 40.0
 CONTROL_DT = 1.0/CONTROL_FREQ
 
-SAMPLE_FREQ = 10.0
+SAMPLE_FREQ = 20.0
 SAMPLE_DT = 1.0/SAMPLE_FREQ
 
 TRACKING_METHOD = "CV" # "OPENPOSE"
@@ -29,7 +29,7 @@ if TRACKING_METHOD == "OPENPOSE":
 if TRACKING_METHOD == "CV":
     CALIB_PATH = "data/subl_calib_3.pkl"
 
-ANKLE_BUFFER_SIZE = 20
+ANKLE_BUFFER_SIZE = 15
 
 def main():
     params = dict()
@@ -51,17 +51,6 @@ def main():
     print("building haptic commander...")
     commander = HapticCommander(PORT, BAUD)
 
-
-    #modes1, servo1, vibe1 = commander.saltation_effect([0, 1, 2, 3], 120, 100, 50, CONTROL_FREQ, 8)
-    #modes2, servo2, vibe2 = commander.saltation_effect([4, 5, 6, 7], 120, 100, 50, CONTROL_FREQ, 8)
-
-    #modes, servo, vibe = merge_commands([commander.saltation_effect([0, 1, 2, 3], [120, 100, 80, 120], [100, 150, 100, 90], [20, 40, 50], CONTROL_FREQ, 8),
-    #                                     commander.saltation_effect([4, 5, 6, 7], 120, 100, 50, CONTROL_FREQ, 8)])
-    
-    #print(modes)
-    #print(servo)
-    #print(vibe)
-    #print(""+2)
     if TRACKING_METHOD == "OPENPOSE":
         print("building openpose")
         tracking_wrapper = OpenPoseWrapper(params, WEBCAM_IDX, ANKLE_BUFFER_SIZE, sample_freq=SAMPLE_FREQ)
@@ -74,29 +63,6 @@ def main():
     prev_sample_time = time.time()
     prev_control_time = time.time()
 
-    # EDIT HERE FOR PROTOTYPING:
-    # note: negative gains means that when error is negative, motor is active.
-    #       positive gain means that when error is positive, motor is active.
-    #
-    #       error is goal_angle - current_angle, so if foot is too pointed, error would be positive
-
-    goal_angle = 100
-
-    # gains are multiplied by the angle error in the current implementation. see above for numeric info
-    vibe_gains = [3.0, 3.0, 3.0, 3.0, -8.0, -8.0, -8.0, -8.0]
-    #vibe_gains = [0.0]*8
-    #vibe_gains[0] = 3.0
-                  #-4.0, -4.0, -4.0, -4.0]
-    servo_gain = 0.0
-
-    gains = [servo_gain] + vibe_gains
-
-    # this is a super simple way to get switching behavoir for testing, not intended for long term use.
-    s_lim = 20
-    s_idx = 0
-    flag = 0
-    new_flag = True
-
     # construct information for text overlayed on visual display.
     if DISPLAY:
         text = ""
@@ -106,9 +72,33 @@ def main():
         thickness = 2
         position = (50, 100)  # Coordinates of the bottom-left corner of the text string
     
+    # ------------------------------ EDIT HERE FOR PROTOTYPING: ------------------------------ #
+    # note: negative gains means that when error is negative, motor is active.
+    #       positive gain means that when error is positive, motor is active.
+    #
+    #       error is goal_angle - current_angle, so if foot is too pointed, error would be positive
+    #
+    #     vibration motor indices for reference:
+    #  0 --> front, close to knee
+    #  3 --> front, close to ankle
+    #  4 --> back, close to ankle
+    #  7 --> back, close to knee
+
+    goal_angle = 100
+
+    # gains are multiplied by the angle error in the current implementation. see above for numeric info
+    vibe_gains = [3.0, 3.0, 3.0, 3.0, -8.0, -8.0, -8.0, -8.0]
+
+    servo_gain = 2.0
+
+    gains = [servo_gain] + vibe_gains
+
+    flag = False
+    # ------------------------------ EDIT ABOVE FOR PROTOTYPING ------------------------------ #
+
+
     # control loop
     while True:
-        #print("loop!")
         current_time = time.time()
 
         # we can sample and control at different frequencies. 
@@ -120,6 +110,7 @@ def main():
             if TRACKING_METHOD == "OPENPOSE":
                 tracking_wrapper.collect_ankle_angle(LEG_SELECTED, DISPLAY)
 
+            # collects from opencv hough transform tracker
             if TRACKING_METHOD == "CV":
                 tracking_wrapper.collect_ankle_angle(DISPLAY)
 
@@ -157,25 +148,84 @@ def main():
             # this is where commmands can be added to the queue. currently we apply feedback every control loop, but
             # in the future we can add many commands to the queue, and execute one every time this statement is entered.
             # then, add new commands once the queue is empty.
-            mode, servo_cmd, vibe_cmds = commander.attracting_point(current_angle, goal_angle, mode="both", gains=gains)
-            #commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
 
+            #           FOLLOWING ARE WHERE COMMANDS ARE SET BASED ON CURRENT ANGLE VALUE, THE IF STATEMENTS MEAN THAT ONLY
+            #           THE FIRST TRIGGERS. MOVE DESIRED CONTROL STRATEGY FIRST.
+
+            # proportional command based on error:
+            if commander.commands_in_queue() == 0:
+                mode, servo_cmd, vibe_cmds = commander.attracting_point(current_angle, goal_angle, mode="both", gains=gains)
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+
+            # binary command (over or under are constant levels of stim, with some deadzone.
+            if commander.commands_in_queue() == 0:
+                intensities = [120.0, 120.0, 120.0, 120.0, 250.0, 250.0, 250.0, 250.0]
+                mode, servo_cmd, vibe_cmds = commander.binary_deadzone(current_angle, goal_angle, deadzone=5.0, servo_delta=15.0, 
+                                                                       intensities = intensities, mode="both")
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+
+            # servo kick
+            if commander.commands_in_queue() == 0:
+                start_servo_angle = 90
+                end_servo_angle = 110
+                advance_time = 50
+                retract_time = 250
+                mode, servo_cmd, vibe_cmds = commander.servo_kick(start_servo_angle, end_servo_angle, advance_time, retract_time)
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+
+            # saltation effect
+            if commander.commands_in_queue() == 0:
+                intensity = [120.0, 120.0, 120.0, 120.0, 250.0, 250.0, 250.0, 250.0]
+                activation_time = 100
+                delay_time = 20
+                mode, servo_cmd, vibe_cmds = commander.saltation_effect([0, 1, 2, 3], intensity, activation_time, delay_time)
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+
+            # opposing saltation effect
+            if commander.commands_in_queue() == 0:
+                intensity = [120.0, 120.0, 120.0, 120.0, 250.0, 250.0, 250.0, 250.0]
+                activation_time = 100
+                delay_time = 20
+                mode, servo_cmd, vibe_cmds = merge_commands([commander.saltation_effect([0, 1, 2, 3], intensity, activation_time, delay_time),
+                                                             commander.saltation_effect([4, 5, 6, 7], intensity, activation_time, delay_time)])
+                                                             
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+            
+            # Switch on/off at some frequency
+            if commander.commands_in_queue() == 0:
+
+                # Use this format to make a switching effect (every n seconds a flag flips, causing something else to happen until it flips back)
+                # check the switch on/off example below for explanation. We don't need a timer because when the command queue runs out it means
+                # it is time to switch behavior.
+
+                # could set period based on error magnitude! Then you get different switching based on distance from goal
+                period = 2000 # in ms
+                on_servo = 110
+                on_vibes = [120.0, 120.0, 120.0, 120.0, 250.0, 250.0, 250.0, 250.0]
+                off_servo = 90
+                off_vibes = [0.0]*8
+                
+                if flag:
+                    mode, servo_cmd, vibe_cmds = commander.hold_state(on_servo, on_vibes, period/2.0)
+                    flag = False
+                else:
+                    mode, servo_cmd, vibe_cmds = commander.hold_state(off_servo, off_vibes, period/2.0)
+                    flag = True
+
+                                                             
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+
+            # Vibe check, switch through motors to ensure all are working
+            if commander.commands_in_queue() == 0:
+                time_on = 100 # in ms
+                intensity = [120.0, 120.0, 120.0, 120.0, 250.0, 250.0, 250.0, 250.0]
+                mode, servo_cmd, vibe_cmds = commander.vibe_check(time_on, intensity)
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+            
             # this should always be present.
             commander.send_next_command()
             
             prev_control_time = current_time
-
-            # this is just used to have mode switching for testing motors, should be removed.
-            s_idx += 1
-            if s_idx > s_lim:
-                if flag:
-                    flag = 0
-                else:
-                    flag = 1
-
-                s_idx = 0
-
-
 
 
 if __name__=="__main__":
