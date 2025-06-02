@@ -1,13 +1,13 @@
 
 from utils.pose_tracking import OpenPoseWrapper, MaskTracker
 from utils.control_logic import HapticCommander, list_ports, merge_commands
+from utils.data_collection import DataLogger
 import time
 import cv2
 
 import numpy as np
 
 
-LEG_SELECTED = "LEFT"
 DISPLAY = True
 PORT = "/dev/ttyUSB0" # /dev/ttyUSB0
 BAUD = 9600
@@ -16,20 +16,30 @@ WEBCAM_IDX = 2
 CONTROL_FREQ = 40.0
 CONTROL_DT = 1.0/CONTROL_FREQ
 
-SAMPLE_FREQ = 20.0
+SAMPLE_FREQ = 40.0
 SAMPLE_DT = 1.0/SAMPLE_FREQ
+
+ANKLE_BUFFER_SIZE = 15 # samples to store for ankle angle filter
+ANKLE_FILTER_CUTOFF = 10
+
+# data collection
+COLLECT_DATA = True
+if COLLECT_DATA:
+    DATA_LABELS = ["epoch_time", "ankle_angle", "goal_angle", "servo_command"]
+    for i in range(8):
+        DATA_LABELS.append("vibe_command_" + str(i))
+
 
 TRACKING_METHOD = "CV" # "OPENPOSE"
 # open pose params
 if TRACKING_METHOD == "OPENPOSE":
+    LEG_SELECTED = "LEFT"
     MODEL_FOLDER = "gits/openpose/models/"
     NET_RESOLUTION = "-1x256"
 
 # cv tracking
 if TRACKING_METHOD == "CV":
     CALIB_PATH = "data/subl_calib_3.pkl"
-
-ANKLE_BUFFER_SIZE = 15
 
 def main():
     params = dict()
@@ -53,11 +63,15 @@ def main():
 
     if TRACKING_METHOD == "OPENPOSE":
         print("building openpose")
-        tracking_wrapper = OpenPoseWrapper(params, WEBCAM_IDX, ANKLE_BUFFER_SIZE, sample_freq=SAMPLE_FREQ)
+        tracking_wrapper = OpenPoseWrapper(params, WEBCAM_IDX, ANKLE_BUFFER_SIZE, lowpass_cutoff = ANKLE_FILTER_CUTOFF, sample_freq=SAMPLE_FREQ)
     
     if TRACKING_METHOD == "CV":
         print("building openpose")
-        tracking_wrapper = MaskTracker(CALIB_PATH, WEBCAM_IDX, ANKLE_BUFFER_SIZE, sample_freq=SAMPLE_FREQ)
+        tracking_wrapper = MaskTracker(CALIB_PATH, WEBCAM_IDX, ANKLE_BUFFER_SIZE, lowpass_cutoff = ANKLE_FILTER_CUTOFF, sample_freq=SAMPLE_FREQ)
+
+    # construct data logger
+    if COLLECT_DATA:
+        data_logger = DataLogger(DATA_LABELS)
 
     # used to track the control and sampling loops.
     prev_sample_time = time.time()
@@ -154,7 +168,11 @@ def main():
 
             # proportional command based on error:
             if commander.commands_in_queue() == 0:
-                mode, servo_cmd, vibe_cmds = commander.attracting_point(current_angle, goal_angle, mode="both", gains=gains)
+                peak_vibe = 250
+                deadzone = 2.5
+                min_vibe = [50]*4 + [80]*4
+                mode, servo_cmd, vibe_cmds = commander.attracting_point(current_angle, goal_angle, mode="both", gains=gains,
+                                                                        peak_vibe = peak_vibe, deadzone=deadzone, min_vibe = min_vibe)
                 commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
 
             # binary command (over or under are constant levels of stim, with some deadzone.
@@ -223,9 +241,20 @@ def main():
                 commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
             
             # this should always be present.
+            new_data_ls = [time.time(), current_angle, goal_angle] + commander.command_queue[0][1:]
+            data_logger.log_data(new_data_ls)
+
             commander.send_next_command()
             
+            
             prev_control_time = current_time
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            print("You pressed 'q'. Exiting loop.")
+            break
+    data_logger.save_data("data/subl_test_1.pkl")
+    data_logger.export_as_csv("data/subl_test_1.csv")
+    cv2.destroyAllWindows()
 
 
 if __name__=="__main__":

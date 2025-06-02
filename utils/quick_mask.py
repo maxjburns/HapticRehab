@@ -3,7 +3,7 @@
 import cv2
 import numpy as np
 import pickle
-from pose_tracking import sort_leg_points
+from utils.pose_tracking import sort_leg_points
 
 def save_webcam_image(save_path, webcam_idx):
     # Open a connection to the specified webcam 

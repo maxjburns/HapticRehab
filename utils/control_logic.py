@@ -148,7 +148,7 @@ class HapticCommander:
 
 
     def attracting_point(self, current_angle:float, goal_angle:float, increasing:bool=True, mode:str="both", gains:list[float]=[1.5],
-                         peak_vibe:int=200):
+                         peak_vibe:int=200, deadzone:float=2.5, min_vibe:list[float]=[0.0]):
         """
         Function used to generate a command where stimulation is proportional to error.
 
@@ -159,7 +159,9 @@ class HapticCommander:
         mode is "vibe" "servo" or "both" depending on the type of stimulation desired.
         gain is what to multiply angle error by to achieve a 0-253 command (or 0-180 for the servo) it is a list
                         which should be ordered relative to the index of the servo and motors.
-        
+
+        any commands below 50 for single motors or 80 for serial motors are an unintentional deadzone.
+
         returns mode, servo_command, vibe_commands which should be then added to the command queue.
 
         current_angle is also stored to calculate the rate of progress, if desired. 
@@ -181,15 +183,19 @@ class HapticCommander:
         # TODO implement rate of change in error (damping?)
         servo_command = 0
         vibe_command = [0]*(len(gains)-1)
+
         
         if mode == "servo" or mode=="both":
             servo_command = 90 + gains[0] * err
             if servo_command > 180: servo_command = 180
             elif servo_command < 0: servo_command = 0
         
+        if np.abs(err) < deadzone:
+            return [mode], [int(servo_command)], [vibe_command]
+        
         if mode == "vibe" or mode=="both":
             vibe_idx = 0
-            for gain in gains[1:]:
+            for i, gain in enumerate(gains[1:]):
                 if increasing: 
                     vibe_command[vibe_idx] = int(gain*err)
 
@@ -200,8 +206,12 @@ class HapticCommander:
                 if vibe_command[vibe_idx] > peak_vibe:
                     vibe_command[vibe_idx] = peak_vibe
 
-                elif vibe_command[vibe_idx] < 0:
+                elif vibe_command[vibe_idx] <= 0:
                     vibe_command[vibe_idx] = 0 
+                
+                # if vibe command is not negative, but is too small, then we set it to min vibe level
+                elif vibe_command[vibe_idx] < min_vibe[i]:
+                    vibe_command[vibe_idx] = min_vibe[i]
 
                 vibe_idx += 1
 
