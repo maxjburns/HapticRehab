@@ -303,8 +303,11 @@ class HapticCommander:
                 mode = "both"
             else:
                 mode == "servo"
+        
+        if mode == "":
+            mode = "both"
 
-        total_timesteps = int(hold_time*self.control_freq)
+        total_timesteps = int(hold_time*self.control_freq*0.001)
 
         return [mode]*total_timesteps, [servo_cmd]*total_timesteps, [vibe_command for t in range(total_timesteps)]
     
@@ -321,20 +324,40 @@ class HapticCommander:
         total_timesteps = 0
 
         # find how many forward steps we get, then interp the angle linearly over that range
-        steps = advance_time * self.control_freq * 0.001
+        steps = int(advance_time * self.control_freq * 0.001)
         total_timesteps += steps
 
-        advance_commands = np.linspace(start_angle, goal_angle, steps)
+        advance_commands = np.linspace(start_angle, goal_angle, steps).astype(int)
 
         # find out how many retraction steps we get, then interp the angle linearly over that range.
-        steps = retraction_time * self.control_freq * 0.001
+        steps = int(retraction_time * self.control_freq * 0.001)
         total_timesteps += steps
 
-        retract_commands = np.linspace(goal_angle, start_angle, steps)
+        retract_commands = np.linspace(goal_angle, start_angle, steps).astype(int)
 
         servo_commands = list(advance_commands) + list(retract_commands)
 
         return ["servo"]*total_timesteps, servo_commands, [[0]*self.total_vibe_motors for t in range(total_timesteps)]
+    
+    def vibe_check(self, time:float, strength:list[float]):
+
+        steps = int(time*self.control_freq*0.001)
+        total_timesteps = steps*self.total_vibe_motors
+
+        modes = ["vibe"]*total_timesteps
+
+        servo_commands = [90]*total_timesteps
+
+        vibe_commands = [[0]*self.total_vibe_motors for i in range(total_timesteps)]
+
+        t = 0
+        for i in range(self.total_vibe_motors):
+            for j in range(steps):
+                vibe_commands[t][i] = strength[i]
+                t += 1
+                
+        return modes, servo_commands, vibe_commands
+        
 
 def merge_commands(command_lists:list[tuple]):
     """

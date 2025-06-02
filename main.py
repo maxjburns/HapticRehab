@@ -9,11 +9,12 @@ import numpy as np
 
 LEG_SELECTED = "LEFT"
 DISPLAY = True
+#PORT=""
 PORT = "/dev/ttyUSB0"
 BAUD = 9600
-WEBCAM_IDX = 0
+WEBCAM_IDX = 2
 
-CONTROL_FREQ = 50.0
+CONTROL_FREQ = 40.0
 CONTROL_DT = 1.0/CONTROL_FREQ
 
 SAMPLE_FREQ = 10.0
@@ -66,12 +67,14 @@ def main():
     #
     #       error is goal_angle - current_angle, so if foot is too pointed, error would be positive
 
-    goal_angle = 90
+    goal_angle = 100
 
     # gains are multiplied by the angle error in the current implementation. see above for numeric info
-    vibe_gains = [5.0, 5.0, 5.0, 5.0, -5.0, -5.0, -5.0, -5.0]
+    vibe_gains = [3.0, 3.0, 3.0, 3.0, -8.0, -8.0, -8.0, -8.0]
+    #vibe_gains = [0.0]*8
+    #vibe_gains[0] = 3.0
                   #-4.0, -4.0, -4.0, -4.0]
-    servo_gain = 2.0
+    servo_gain = 0.0
 
     gains = [servo_gain] + vibe_gains
 
@@ -79,6 +82,7 @@ def main():
     s_lim = 20
     s_idx = 0
     flag = 0
+    new_flag = True
 
     # construct information for text overlayed on visual display.
     if DISPLAY:
@@ -88,9 +92,10 @@ def main():
         color = (0, 0, 0)  # White color
         thickness = 2
         position = (50, 100)  # Coordinates of the bottom-left corner of the text string
-
+    
     # control loop
     while True:
+        #print("loop!")
         current_time = time.time()
 
         # we can sample and control at different frequencies. 
@@ -123,7 +128,7 @@ def main():
         
         # used for the control loop, how often do we send information?
         # need to wait for ankle data to be ready (ankle buffer is full of data and ready to be filtered)
-        if current_time - prev_control_time > CONTROL_DT and open_pose.ankle_ready:
+        if current_time - prev_control_time > CONTROL_DT: #and open_pose.ankle_ready:
             # get the current ankle angle, this is the step which applies a lowpass filter to buffered data.
             current_angle = open_pose.get_ankle_angle()
             
@@ -135,9 +140,51 @@ def main():
             # this is where commmands can be added to the queue. currently we apply feedback every control loop, but
             # in the future we can add many commands to the queue, and execute one every time this statement is entered.
             # then, add new commands once the queue is empty.
-            mode, servo_cmd, vibe_cmds = commander.attracting_point(current_angle, goal_angle, mode="both", gains=gains)
-            commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+            #mode, servo_cmd, vibe_cmds = commander.attracting_point(current_angle, goal_angle, mode="both", gains=gains)
+            if commander.commands_in_queue() == 0:
+                intensities = [120, 120, 120, 120, 250, 250, 250, 250]
+                mode, servo_cmd, vibe_cmd = commander.binary_deadzone(current_angle, goal_angle, 5.0, servo_delta=10, mode="both", intensities=intensities)
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmd)
 
+            if commander.commands_in_queue() == 0:
+                mode, servo_cmd, vibe_cmd = commander.attracting_point(current_angle, goal_angle, mode="both", gains=gains)
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmd)
+
+            if commander.commands_in_queue() == 0:
+                mode, servo_cmd, vibe_cmd = commander.saltation_effect([4, 5, 6, 7], 250, 100, 20)
+                #mode, servo_cmd, vibe_cmd = commander.saltation_effect([0, 1, 2, 3], 120, 100, 20)
+                #mode, servo_cmd, vibe_cmd = merge_commands([commander.saltation_effect([4, 5, 6, 7], 250, 100, 20), 
+                #                                            commander.saltation_effect([0, 1, 2, 3], 120, 100, 20)])
+               # 
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmd)
+                mode, servo_cmd, vibe_cmd = commander.hold_state(90, [0]*8, 500)
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmd)
+
+            if commander.commands_in_queue() == 0:
+                vibe_ls = [120, 120, 120, 120, 250, 250, 250, 250]
+                mode, servo_cmd, vibe_cmd = commander.vibe_check(100, vibe_ls)
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmd)
+
+            if commander.commands_in_queue() == 0:
+                mode, servo_cmd, vibe_cmd = commander.servo_kick(90, 90, 600, 40)
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmd)
+            
+            if new_flag and commander.commands_in_queue() == 0:
+                vibe_test = [120, 120, 120, 120, 250, 250, 250, 250]
+                vibe_test = [0, 0, 0, 0, 0, 0, 0, 0]
+                mode, servo_cmd, vibe_cmd = commander.hold_state(90, vibe_test, 100)
+            
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmd)
+                new_flag = False
+
+            
+            if not new_flag and commander.commands_in_queue() == 0:
+
+                mode, servo_cmd, vibe_cmd = commander.hold_state(60, [0]*8, 100)
+            
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmd)
+                new_flag = True
+            
             # this should always be present.
             commander.send_next_command()
             
