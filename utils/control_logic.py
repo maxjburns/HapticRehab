@@ -103,10 +103,11 @@ class HapticCommander:
         if servo_cmd < SERVO_MIN or servo_cmd > SERVO_MAX:
             raise ValueError("Cannot send out of bounds servo command of " + str(servo_cmd) + ".")
         
+        vibe_cmd_int = [int(val) for val in vibe_cmd]
         # construct command as a byte array, then send.
-        command = bytes([254, mode_byte, servo_cmd] + vibe_cmd + [255])
+        command = bytes([254, mode_byte, int(servo_cmd)] + vibe_cmd_int + [255])
 
-        if self.debug: print("sending command:", mode, servo_cmd, vibe_cmd, "\n\tas byte arr:", command)
+        if self.debug: print("sending command:", mode, int(servo_cmd), vibe_cmd_int, "\n\tas byte arr:", command)
         self.ser.write(command)
     
     def binary_deadzone(self, current_angle:float, goal_angle:float, deadzone_size:float, servo_delta:float=0, intensities:list[float]=[0], mode:str="both"):
