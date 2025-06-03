@@ -22,11 +22,6 @@ SAMPLE_DT = 1.0/SAMPLE_FREQ
 ANKLE_BUFFER_SIZE = 15 # samples to store for ankle angle filter
 ANKLE_FILTER_CUTOFF = 10
 
-MODE = "SERVO_EXPAND"
-MODE = "VIBE_EXPAND"
-MODE = "VIBE_PATTERN"
-MODE = "VIBE_PROPORTION"
-
 # data collection
 COLLECT_DATA = True
 if COLLECT_DATA:
@@ -45,11 +40,17 @@ if TRACKING_METHOD == "OPENPOSE":
 
 # cv tracking
 if TRACKING_METHOD == "CV":
-    CALIB_PATH = "data/subl_calib_6.pkl"
+    CALIB_PATH = "data/subl_calib_8.pkl"
 
 def main():
     params = dict()
 
+    upper_angle = 115.0
+    lower_angle = 105.0
+    MODE = "SERVO_EXPAND"
+    #MODE = "VIBE_EXPAND"
+    #MODE = "VIBE_PROPORTION"
+    #MODE = "VIBE_PATTERN"
     if TRACKING_METHOD == "OPENPOSE":
     # open pose setup. It runs faster if we don't display bc no rendering needed.
         if not DISPLAY:
@@ -104,9 +105,7 @@ def main():
     #  4 --> back, close to ankle
     #  7 --> back, close to knee
 
-    goal_angle = 115
-    upper_angle = 115.0
-    lower_angle = 105.0
+    goal_angle = 110
     # gains are multiplied by the angle error in the current implementation. see above for numeric info
     vibe_gains = [3.0, 3.0, 3.0, 3.0, -8.0, -8.0, -8.0, -8.0]
 
@@ -176,279 +175,153 @@ def main():
                         # proportional command based on error:
             
             if MODE == "SERVO_EXPAND":
-            if MODE == "VIBE_EXPAND":
-            if MODE == "VIBE_PATTERN":
-            if MODE == "VIBE_PROPORTION":
+                # USE FOR DEMO - SERVO KICK EXPANDING 
+                if commander.commands_in_queue() == 0:
+                    # Use this format to make a switching effect (every n seconds a flag flips, causing something else to happen until it flips back)
+                    # check the switch on/off example below for explanation. We don't need a timer because when the command queue runs out it means
+                    # it is time to switch behavior.
+
+                    off_time =100
+                    on_time = 150
+
+                    if current_angle < lower_angle and flag:
+                        flag = False
+
+                        mode, servo_cmd, vibe_cmds = commander.servo_kick(90, 120, 80, 300)
+                        commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+                        lower_angle -= 2.0
 
 
-            amplitude = 20
-            frequency = 0.1
-            mid = 110
-            goal_angle = mid + amplitude * np.sin(2 * np.pi * frequency * time.time())
-            
-            # test bump at limit continuous servo - not for demo
-            if commander.commands_in_queue() == 0:
+                    elif current_angle > upper_angle and not flag:
+                        flag = True
 
-                off_time =100
-                on_time = 150
+                        mode, servo_cmd, vibe_cmds = commander.servo_kick(90, 60, 80, 300)
+                        commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+                        upper_angle += 2.0
 
-                if goal_angle > mid+amplitude-1 and flag:
-                    flag = False
-
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(90, [120, 120, 120, 120, 250, 250, 250, 250], on_time)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0, 0, 0, 0, 0, 0, 0, 0], off_time)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(90, [120, 120, 120, 120, 250, 250, 250, 250], on_time)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0, 0, 0, 0, 0, 0, 0, 0], off_time)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-
-                elif goal_angle < mid-amplitude+1 and not flag:
-                    flag = True
-                    
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(90, [120, 120, 120, 120, 250, 250, 250, 250], on_time)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0, 0, 0, 0, 0, 0, 0, 0], off_time)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(90, [120, 120, 120, 120, 250, 250, 250, 250], on_time)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0, 0, 0, 0, 0, 0, 0, 0], off_time)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+                    else:
+                        
+                        mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0, 0, 0, 0, 0, 0, 0, 0], 50)
+                        commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
                 
-                else:
+            if MODE == "VIBE_EXPAND":
+
+                # USE FOR DEMO - BOP BOP AT LIMITS THAT EXPAND
+                if commander.commands_in_queue() == 0:
+                    # Use this format to make a switching effect (every n seconds a flag flips, causing something else to happen until it flips back)
+                    # check the switch on/off example below for explanation. We don't need a timer because when the command queue runs out it means
+                    # it is time to switch behavior.
+
+
+                    off_time =100
+                    on_time = 150
+
+                    if current_angle < lower_angle and flag:
+                        flag = False
+
+                        mode, servo_cmd, vibe_cmds = commander.hold_state(90, [120, 120, 120, 120, 250, 250, 250, 250], on_time)
+                        commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+                        mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0, 0, 0, 0, 0, 0, 0, 0], off_time)
+                        commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+                        mode, servo_cmd, vibe_cmds = commander.hold_state(90, [120, 120, 120, 120, 250, 250, 250, 250], on_time)
+                        commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+                        mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0, 0, 0, 0, 0, 0, 0, 0], off_time)
+                        commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+                        lower_angle -= 2.0
+
+
+                    elif current_angle > upper_angle and not flag:
+                        flag = True
+                        mode, servo_cmd, vibe_cmds = commander.hold_state(90, [120, 120, 120, 120, 250, 250, 250, 250], on_time)
+                        commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+                        mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0, 0, 0, 0, 0, 0, 0, 0], off_time)
+                        commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+                        mode, servo_cmd, vibe_cmds = commander.hold_state(90, [120, 120, 120, 120, 250, 250, 250, 250], on_time)
+                        commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+                        mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0, 0, 0, 0, 0, 0, 0, 0], off_time)
+                        commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+                        upper_angle += 2.0
+
+                    else:
+                        
+                        mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0, 0, 0, 0, 0, 0, 0, 0], 50)
+                        commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+
+                        
+            if MODE == "VIBE_PATTERN":
+                # USE FOR DEMO - FREQ WHEN FAR
+                if commander.commands_in_queue() == 0:
+                    # Use this format to make a switching effect (every n seconds a flag flips, causing something else to happen until it flips back)
+                    # check the switch on/off example below for explanation. We don't need a timer because when the command queue runs out it means
+                    # it is time to switch behavior.
+                    err = np.abs(current_angle - goal_angle)
+                    # could set period based on error magnitude! Then you get different switching based on distance from goal
+                    period = 1000 - 100*err # in ms
+                    if period < 300:
+                        period = 300
+                    if period > 1000:
+                        period = 1000
+                    if err < 5:
+                        flag = False
+                    
+                    on_servo = 90
+                    on_vibes = [120.0, 120.0, 120.0, 120.0, 250.0, 250.0, 250.0, 250.0]
+                    off_servo = 90
+                    off_vibes = [0.0]*8
+                    
+                    if flag:
+                        mode, servo_cmd, vibe_cmds = commander.hold_state(on_servo, on_vibes, period/2.0)
+                        flag = False
+                    else:
+                        mode, servo_cmd, vibe_cmds = commander.hold_state(off_servo, off_vibes, period/2.0)
+                        flag = True
+
+                                                                
+                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+
+
+            if MODE == "VIBE_PROPORTION":
+                if commander.commands_in_queue() == 0:
                     peak_vibe = 250
                     deadzone = 2.5
-                    min_vibe = [0]*8
-                    
-                    mode, servo_cmd, vibe_cmds = commander.attracting_point(current_angle, goal_angle, mode="servo", gains=[2.0],
+                    min_vibe = [50]*4 + [80]*4
+                    mode, servo_cmd, vibe_cmds = commander.attracting_point(current_angle, goal_angle, mode="both", gains=gains,
                                                                             peak_vibe = peak_vibe, deadzone=deadzone, min_vibe = min_vibe)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)    
-                    
-
-            # USE FOR DEMO - PROPORTIONAL VIBE AND SERVO
-            if commander.commands_in_queue() == 0:
-                peak_vibe = 250
-                deadzone = 2.5
-                min_vibe = [50]*4 + [80]*4
-                mode, servo_cmd, vibe_cmds = commander.attracting_point(current_angle, goal_angle, mode="both", gains=gains,
-                                                                        peak_vibe = peak_vibe, deadzone=deadzone, min_vibe = min_vibe)
-                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)      
-
-            # USE FOR DEMO - SERVO KICK EXPANDING 
-            if commander.commands_in_queue() == 0:
-                # Use this format to make a switching effect (every n seconds a flag flips, causing something else to happen until it flips back)
-                # check the switch on/off example below for explanation. We don't need a timer because when the command queue runs out it means
-                # it is time to switch behavior.
-
-                off_time =100
-                on_time = 150
-
-                if current_angle < lower_angle and flag:
-                    flag = False
-
-                    mode, servo_cmd, vibe_cmds = commander.servo_kick(90, 120, 80, 300)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-                    lower_angle -= 1.0
-
-
-                elif current_angle > upper_angle and not flag:
-                    flag = True
-
-                    mode, servo_cmd, vibe_cmds = commander.servo_kick(90, 60, 80, 300)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-                    upper_angle += 1.0
-
-                else:
-                    
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0, 0, 0, 0, 0, 0, 0, 0], 50)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-            
-            # USE FOR DEMO - BOP BOP AT LIMITS THAT EXPAND
-            if commander.commands_in_queue() == 0:
-                # Use this format to make a switching effect (every n seconds a flag flips, causing something else to happen until it flips back)
-                # check the switch on/off example below for explanation. We don't need a timer because when the command queue runs out it means
-                # it is time to switch behavior.
-
-
-                off_time =100
-                on_time = 150
-
-                if current_angle < lower_angle and flag:
-                    flag = False
-
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(90, [120, 120, 120, 120, 250, 250, 250, 250], on_time)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0, 0, 0, 0, 0, 0, 0, 0], off_time)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(90, [120, 120, 120, 120, 250, 250, 250, 250], on_time)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0, 0, 0, 0, 0, 0, 0, 0], off_time)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-                    lower_angle -= 1.0
-
-
-                elif current_angle > upper_angle and not flag:
-                    flag = True
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(90, [120, 120, 120, 120, 250, 250, 250, 250], on_time)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0, 0, 0, 0, 0, 0, 0, 0], off_time)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(90, [120, 120, 120, 120, 250, 250, 250, 250], on_time)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0, 0, 0, 0, 0, 0, 0, 0], off_time)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-                    upper_angle += 1.0
-
-                else:
-                    
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0, 0, 0, 0, 0, 0, 0, 0], 50)
-                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-
-                                            
-
-
-            # USE FOR DEMO - FREQ WHEN FAR
-            if commander.commands_in_queue() == 0:
-                # Use this format to make a switching effect (every n seconds a flag flips, causing something else to happen until it flips back)
-                # check the switch on/off example below for explanation. We don't need a timer because when the command queue runs out it means
-                # it is time to switch behavior.
-                err = np.abs(current_angle - goal_angle)
-                # could set period based on error magnitude! Then you get different switching based on distance from goal
-                period = 1000 - 100*err # in ms
-                if period < 300:
-                    period = 300
-                if period > 1000:
-                    period = 1000
-                if err < 5:
-                    flag = False
-                
-                on_servo = 90
-                on_vibes = [120.0, 120.0, 120.0, 120.0, 250.0, 250.0, 250.0, 250.0]
-                off_servo = 90
-                off_vibes = [0.0]*8
-                
-                if flag:
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(on_servo, on_vibes, period/2.0)
-                    flag = False
-                else:
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(off_servo, off_vibes, period/2.0)
-                    flag = True
-
-                                                             
-                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-
-            # opposing saltation effect
-            if commander.commands_in_queue() == 0:
-                intensity_front = [120.0, 120.0, 120.0, 120.0]
-                intensity_back = [250.0, 250.0, 250.0, 250.0]
-
-                activation_time = 10000.0*1/(np.abs(goal_angle - current_angle)+1)
-                print("ACTIVATION TIME", activation_time)
-                delay_time = activation_time/2.0
-
-                activation_time = int(activation_time)
-                delay_time = int(delay_time)
-                
-
-                #activation_time = 200
-                #delay_time = 40
-                mode, servo_cmd, vibe_cmds = merge_commands([commander.saltation_effect([0, 1, 2, 3], intensity_front, activation_time, delay_time),
-                                                             commander.saltation_effect([4, 5, 6, 7], intensity_back, activation_time, delay_time)])
-                                                             
-                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-            
-      
-            
-            # opposing saltation effect
-            if commander.commands_in_queue() == 0:
-                intensity = [120.0, 120.0, 120.0, 120.0, 250.0, 250.0, 250.0, 250.0]
-                activation_time = 100
-                delay_time = 20
-                mode, servo_cmd, vibe_cmds = merge_commands([commander.saltation_effect([0, 1, 2, 3], intensity, activation_time, delay_time),
-                                                             commander.saltation_effect([4, 5, 6, 7], intensity, activation_time, delay_time)])
-                                                             
-                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-            
-            # servo kick
-            if commander.commands_in_queue() == 0:
-                start_servo_angle = 90
-                end_servo_angle = 110
-                advance_time = 50
-                retract_time = 250
-                mode, servo_cmd, vibe_cmds = commander.servo_kick(start_servo_angle, end_servo_angle, advance_time, retract_time)
-                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-
-             # binary command (over or under are constant levels of stim, with some deadzone.
-            if commander.commands_in_queue() == 0:
-                intensities = [120.0, 120.0, 120.0, 120.0, 250.0, 250.0, 250.0, 250.0]
-                mode, servo_cmd, vibe_cmds = commander.binary_deadzone(current_angle, goal_angle, deadzone=5.0, servo_delta=15.0, 
-                                                                       intensities = intensities, mode="both")
-                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-
-            # saltation effect
-            if commander.commands_in_queue() == 0:
-                intensity = [120.0, 120.0, 120.0, 120.0, 250.0, 250.0, 250.0, 250.0]
-                activation_time = 100
-                delay_time = 20
-                mode, servo_cmd, vibe_cmds = commander.saltation_effect([0, 1, 2, 3], intensity, activation_time, delay_time)
-                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-            
-
-            # use this to run without commands:
-            if commander.commands_in_queue() == 0:
-                mode = ["both"]
-                servo_cmd = [90]
-                vibe_cmds = [[0]*8]
-                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-
-
-
-            # Vibe check, switch through motors to ensure all are working
-            if commander.commands_in_queue() == 0:
-                time_on = 100 # in ms
-                intensity = [120.0, 120.0, 120.0, 120.0, 250.0, 250.0, 250.0, 250.0]
-                mode, servo_cmd, vibe_cmds = commander.vibe_check(time_on, intensity)
-                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
-
-
-            
-            # Switch on/off at some frequency
-            if commander.commands_in_queue() == 0:
-
-                # Use this format to make a switching effect (every n seconds a flag flips, causing something else to happen until it flips back)
-                # check the switch on/off example below for explanation. We don't need a timer because when the command queue runs out it means
-                # it is time to switch behavior.
-
-                # could set period based on error magnitude! Then you get different switching based on distance from goal
-                period = 2000 # in ms
-                on_servo = 110
-                on_vibes = [120.0, 120.0, 120.0, 120.0, 250.0, 250.0, 250.0, 250.0]
-                off_servo = 90
-                off_vibes = [0.0]*8
-                
-                if flag:
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(on_servo, on_vibes, period/2.0)
-                    flag = False
-                else:
-                    mode, servo_cmd, vibe_cmds = commander.hold_state(off_servo, off_vibes, period/2.0)
-                    flag = True
-
-                                                             
-                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+                    commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds) 
             
             # this should always be present.
             new_data_ls = [time.time(), current_angle, goal_angle] + commander.command_queue[0][1:]
             data_logger.log_data(new_data_ls)
 
             commander.send_next_command()
-            
+            print("ACTIVE MODE:", MODE)
             
             prev_control_time = current_time
-
         if cv2.waitKey(1) & 0xFF == ord('q'):
             print("You pressed 'q'. Exiting loop.")
             break
+
+        if cv2.waitKey(1) & 0xFF == ord('s'):
+
+            upper_angle = 115.0
+            lower_angle = 105.0
+            MODE = "SERVO_EXPAND"
+
+        if cv2.waitKey(1) & 0xFF == ord('v'):
+
+            upper_angle = 115.0
+            lower_angle = 105.0
+            MODE = "VIBE_EXPAND"
+
+
+        if cv2.waitKey(1) & 0xFF == ord('f'):
+            goal_angle = 95.0
+            MODE = "VIBE_PATTERN"
+
+        if cv2.waitKey(1) & 0xFF == ord('p'):
+            goal_angle = 110.0
+            MODE = "VIBE_PROPORTION"
+
     data_logger.save_data(SAVE_PATH + ".pkl")
     data_logger.export_as_csv(SAVE_PATH + ".csv")
     cv2.destroyAllWindows()
