@@ -22,6 +22,10 @@ SAMPLE_DT = 1.0/SAMPLE_FREQ
 ANKLE_BUFFER_SIZE = 15 # samples to store for ankle angle filter
 ANKLE_FILTER_CUTOFF = 10
 
+MODE = "SERVO_EXPAND"
+MODE = "VIBE_EXPAND"
+MODE = "VIBE_PATTERN"
+MODE = "VIBE_PROPORTION"
 
 # data collection
 COLLECT_DATA = True
@@ -171,6 +175,12 @@ def main():
 
                         # proportional command based on error:
             
+            if MODE == "SERVO_EXPAND":
+            if MODE == "VIBE_EXPAND":
+            if MODE == "VIBE_PATTERN":
+            if MODE == "VIBE_PROPORTION":
+
+
             amplitude = 20
             frequency = 0.1
             mid = 110
