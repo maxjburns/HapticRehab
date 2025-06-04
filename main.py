@@ -25,7 +25,7 @@ ANKLE_FILTER_CUTOFF = 10
 # data collection
 COLLECT_DATA = True
 if COLLECT_DATA:
-    SAVE_PATH = "data/subl_test_3"
+    SAVE_PATH = "data/subl_mb_target_w_pro_only_servo"
     DATA_LABELS = ["epoch_time", "ankle_angle", "goal_angle", "servo_command"]
     for i in range(8):
         DATA_LABELS.append("vibe_command_" + str(i))
@@ -47,9 +47,9 @@ def main():
 
     upper_angle = 115.0
     lower_angle = 105.0
-    MODE = "SERVO_EXPAND"
+    #MODE = "SERVO_EXPAND"
     #MODE = "VIBE_EXPAND"
-    #MODE = "VIBE_PROPORTION"
+    MODE = "VIBE_PROPORTION"
     #MODE = "VIBE_PATTERN"
     if TRACKING_METHOD == "OPENPOSE":
     # open pose setup. It runs faster if we don't display bc no rendering needed.
@@ -108,12 +108,13 @@ def main():
     goal_angle = 110
     # gains are multiplied by the angle error in the current implementation. see above for numeric info
     vibe_gains = [3.0, 3.0, 3.0, 3.0, -8.0, -8.0, -8.0, -8.0]
-
+    vibe_gains = [0.0]*8
     servo_gain = 2.0
 
     gains = [servo_gain] + vibe_gains
 
     flag = False
+    points = 0
     # ------------------------------ EDIT ABOVE FOR PROTOTYPING ------------------------------ #
 
 
@@ -228,6 +229,7 @@ def main():
                         mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0, 0, 0, 0, 0, 0, 0, 0], off_time)
                         commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
                         lower_angle -= 2.0
+                        goal_angle = upper_angle
 
 
                     elif current_angle > upper_angle and not flag:
@@ -241,6 +243,7 @@ def main():
                         mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0, 0, 0, 0, 0, 0, 0, 0], off_time)
                         commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
                         upper_angle += 2.0
+                        goal_angle = lower_angle
 
                     else:
                         
@@ -261,7 +264,7 @@ def main():
                         period = 300
                     if period > 1000:
                         period = 1000
-                    if err < 5:
+                    if err < 2.5:
                         flag = False
                     
                     on_servo = 90
@@ -284,43 +287,44 @@ def main():
                 if commander.commands_in_queue() == 0:
                     peak_vibe = 250
                     deadzone = 2.5
-                    min_vibe = [50]*4 + [80]*4
+                    min_vibe = [80]*4 + [120]*4
+                    
                     mode, servo_cmd, vibe_cmds = commander.attracting_point(current_angle, goal_angle, mode="both", gains=gains,
                                                                             peak_vibe = peak_vibe, deadzone=deadzone, min_vibe = min_vibe)
+                    
+                    
+
+                        
+
                     commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds) 
-            
+            if np.abs(goal_angle-current_angle) < 2.5:
+                points += 1
             # this should always be present.
             new_data_ls = [time.time(), current_angle, goal_angle] + commander.command_queue[0][1:]
             data_logger.log_data(new_data_ls)
 
             commander.send_next_command()
             print("ACTIVE MODE:", MODE)
+            print("POINTS:", points)
+            if points > 1*CONTROL_FREQ:
+                points = 0
+                goal_angle = np.random.randint(85, 130)
+
+                on_time = 100
+                off_time = 50
+                mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0]*8, on_time)
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+                mode, servo_cmd, vibe_cmds = commander.hold_state(120, [0, 0, 0, 0, 0, 0, 0, 0], off_time)
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+                mode, servo_cmd, vibe_cmds = commander.hold_state(90, [0]*8, on_time)
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
+                mode, servo_cmd, vibe_cmds = commander.hold_state(120, [0, 0, 0, 0, 0, 0, 0, 0], off_time)
+                commander.add_commands_to_queue(mode, servo_cmd, vibe_cmds)
             
             prev_control_time = current_time
         if cv2.waitKey(1) & 0xFF == ord('q'):
             print("You pressed 'q'. Exiting loop.")
             break
-
-        if cv2.waitKey(1) & 0xFF == ord('s'):
-
-            upper_angle = 115.0
-            lower_angle = 105.0
-            MODE = "SERVO_EXPAND"
-
-        if cv2.waitKey(1) & 0xFF == ord('v'):
-
-            upper_angle = 115.0
-            lower_angle = 105.0
-            MODE = "VIBE_EXPAND"
-
-
-        if cv2.waitKey(1) & 0xFF == ord('f'):
-            goal_angle = 95.0
-            MODE = "VIBE_PATTERN"
-
-        if cv2.waitKey(1) & 0xFF == ord('p'):
-            goal_angle = 110.0
-            MODE = "VIBE_PROPORTION"
 
     data_logger.save_data(SAVE_PATH + ".pkl")
     data_logger.export_as_csv(SAVE_PATH + ".csv")
